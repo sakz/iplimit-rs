@@ -9,11 +9,21 @@
 curl -fsSL https://raw.githubusercontent.com/sakz/iplimit-rs/main/install.sh | sudo bash
 ```
 
+在无法访问 `raw.githubusercontent.com` 的网络环境，改用克隆安装
+（安装器会直接使用仓库内的 `iplimit.service`，二进制仍从 GitHub Release 下载）：
+
+```bash
+git clone https://github.com/sakz/iplimit-rs.git
+cd iplimit-rs && sudo ./install.sh
+```
+
 安装器行为：
 
 1. `apt-get` 安装依赖：iproute2、conntrack、kmod、systemd、curl、tar。
-2. 下载 GitHub Release 中对应架构（amd64/arm64）的预编译二进制；
-   失败时回退 `IPLIMIT_FROM_SOURCE=1` 路线（下载源码 tarball 并 `cargo build --release`）。
+2. 下载 GitHub Release 中对应架构（amd64/arm64）的预编译二进制
+   （Release 二进制在 Debian 12 容器内构建，兼容 Debian 12 的 glibc 2.36）；
+   下载失败或二进制无法在本机运行时，回退 `IPLIMIT_FROM_SOURCE=1`
+   路线（下载源码 tarball 并 `cargo build --release`）。
 3. 原子写入 `/usr/local/bin/iplimit` 与 `/etc/systemd/system/iplimit.service`。
 4. 首次安装生成 `/etc/iplimit.conf` 默认配置（已存在则不动）。
 5. 若服务正在运行（包括旧版 bash 实现升级上来），`systemctl restart iplimit`，

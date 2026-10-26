@@ -22,9 +22,18 @@ curl -fsSL https://raw.githubusercontent.com/sakz/iplimit-rs/main/install.sh | s
 ```
 
 The installer fetches the prebuilt binary for your architecture (amd64/arm64)
-from GitHub Releases, falls back to `cargo build` if unavailable, and works the
-same from a clone (`sudo ./install.sh`). See [docs/deployment.md](docs/deployment.md)
+from GitHub Releases (built on Debian 12, so it runs on the target's glibc
+2.36), falls back to `cargo build` when unavailable or not runnable, and works
+the same from a clone (`sudo ./install.sh`). See [docs/deployment.md](docs/deployment.md)
 for the full flow, takeover semantics, troubleshooting and uninstall.
+
+If `raw.githubusercontent.com` is unreachable from your network, install from
+a clone instead:
+
+```bash
+git clone https://github.com/sakz/iplimit-rs.git
+cd iplimit-rs && sudo ./install.sh
+```
 
 ## Use
 
@@ -84,7 +93,9 @@ server namespace, including orphaned pipeline helpers:
 
 Windows: A/B/C 120 s each, D 620 s. Configuration at defaults on both sides
 (`CLIENT_TTL=300`); the bash tool's periodic full-table resync caps at
-`CLIENT_TTL/3` = 100 s, the Rust daemon reconciles every 300 s.Takeaways:
+`CLIENT_TTL/3` = 100 s, the Rust daemon reconciles every 300 s.
+
+Takeaways:
 
 - **Idle cost is effectively zero for both** event-driven versions; the Rust
   rewrite removes ~10 MB of resident shell/pipeline processes and collapses
