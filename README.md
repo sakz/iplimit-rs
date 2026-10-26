@@ -69,6 +69,11 @@ flowchart LR
   A new client IP gets its two HTB classes, two `fq_codel` leaves, two flower
   filters and one ingress mirred redirect — the same seven tc operations the
   bash tool performs, just once per client instead of every poll.
+- **Overflow safety**: the event socket requests an 8 MB receive buffer via
+  `SO_RCVBUFFORCE` (plain `SO_RCVBUF` is silently capped by
+  `net.core.rmem_max`, ~208 KB by default). If the buffer still overflows
+  (ENOBUFS), the daemon resyncs from a full-table dump — throttled to at most
+  one dump per 5 s, with counters rebuilt from the dump itself.
 - **Lost DESTROY safety net**: the kernel allocates the conntrack event extension
   lazily at entry creation, so entries created before any listener existed never
   emit DESTROY. Clients that look idle past `CLIENT_TTL` while the daemon still

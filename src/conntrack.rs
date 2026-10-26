@@ -44,6 +44,9 @@ const NLA_TYPE_MASK: u16 = 0x3fff;
 
 const DUMP_TIMEOUT: Duration = Duration::from_secs(5);
 const DUMP_RETRIES: usize = 3;
+// dump 期间同一套接字上仍会收到多播事件；给积压队列设上限，
+// 防止大表 + 高事件率的机器上无界增长。
+const MAX_QUEUED_EVENTS: usize = 65536;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CtTuple {
@@ -134,14 +137,28 @@ impl ConntrackSocket {
         }
 
         let receive_buffer_size: i32 = 8 * 1024 * 1024;
-        unsafe {
+        // SO_RCVBUF 会被内核静默截断到 net.core.rmem_max（默认约 208 KB），
+        // 高事件率下毫秒级溢出；root 守护进程改用 RCVBUFFORCE 拿到真实
+        // 的大缓冲，失败（无 CAP_NET_ADMIN）再退回普通 SO_RCVBUF。
+        let forced = unsafe {
             libc::setsockopt(
                 socket.fd,
                 libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
+                libc::SO_RCVBUFFORCE,
                 &receive_buffer_size as *const i32 as *const libc::c_void,
                 mem::size_of::<i32>() as libc::socklen_t,
-            );
+            )
+        };
+        if forced < 0 {
+            unsafe {
+                libc::setsockopt(
+                    socket.fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_RCVBUF,
+                    &receive_buffer_size as *const i32 as *const libc::c_void,
+                    mem::size_of::<i32>() as libc::socklen_t,
+                );
+            }
         }
 
         Ok(socket)
@@ -294,7 +311,11 @@ impl ConntrackSocket {
                         }
                         return Ok(counts);
                     }
-                    CtMessage::Event { .. } => queued_events.push(message),
+                    CtMessage::Event { .. } => {
+                        if queued_events.len() < MAX_QUEUED_EVENTS {
+                            queued_events.push(message);
+                        }
+                    }
                     CtMessage::Error(code) => {
                         if code == -libc::ENOBUFS || code == -libc::EINTR {
                             return Err(DumpFailure::Interrupted);

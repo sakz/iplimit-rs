@@ -91,6 +91,11 @@ flowchart LR
 
 - 守护进程崩溃或服务器重启后再次 `start`：识别 `owner.env` 中
   `RULESET_VERSION=2` 即接管残留的过滤器与类别，先删后建重建根队列。
+- 事件套接字申请 8 MB 缓冲（root 下用 `SO_RCVBUFFORCE` 绕过
+  `net.core.rmem_max` 的静默截断）。缓冲仍溢出（ENOBUFS）时做全表重同步，
+  并限制为每 5 秒最多一次；被跳过间隔里的事件由下一次重同步或周期
+  reconcile 整体重建计数。
+- 客户端状态文件 `clients.tsv` 最多每秒写一次，高事件率下不产生写盘风暴。
 - DESTROY 事件可能因内核事件扩展的惰性分配而丢失：空闲超过 TTL 但计数仍为正的
   客户端，会以一次定向全表 dump 核实，避免永久误判为活跃。
 - 外部根队列（CAKE/TBF/别人的 HTB）会被拒绝覆盖；`iplimit stop` 只清理自己创建的对象。

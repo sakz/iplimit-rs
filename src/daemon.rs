@@ -20,6 +20,12 @@ use crate::state::write_clients;
 
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(300);
 const RESYNC_RETRY: Duration = Duration::from_secs(30);
+// ENOBUFS 风暴下限制全表重同步的频率；被跳过的间隔里事件会丢失，
+// 计数由下一次重同步或周期 reconcile 整体重建，保持自愈。
+const RESYNC_THROTTLE: Duration = Duration::from_secs(5);
+// 高事件率下每个接收批次都可能触碰活跃客户端；状态文件限频写入，
+// 否则每秒会全量重写 clients.tsv 数百次。
+const FLUSH_MIN_INTERVAL: Duration = Duration::from_secs(1);
 const MAX_DATAGRAMS_PER_WAKE: usize = 512;
 const FIRST_CLASS_ID: u16 = 10;
 const LAST_CLASS_ID: u16 = 65000;
@@ -155,6 +161,8 @@ struct Daemon {
     connections: HashMap<IpAddr, u32>,
     pending: HashMap<IpAddr, u64>,
     dirty: bool,
+    last_flush: Option<Instant>,
+    resync_not_before: Instant,
     next_reconcile: Instant,
 }
 
@@ -176,6 +184,8 @@ impl Daemon {
             connections: HashMap::new(),
             pending: HashMap::new(),
             dirty: false,
+            last_flush: None,
+            resync_not_before: Instant::now(),
             next_reconcile,
         }
     }
@@ -239,7 +249,6 @@ impl Daemon {
             }
             CtMessage::Error(code) => {
                 if code == -libc::ENOBUFS {
-                    warn("netlink 事件缓冲区溢出，正在重新同步 conntrack");
                     true
                 } else {
                     let error = io::Error::from_raw_os_error(-code);
@@ -247,10 +256,7 @@ impl Daemon {
                     false
                 }
             }
-            CtMessage::Overrun => {
-                warn("netlink 事件缓冲区溢出，正在重新同步 conntrack");
-                true
-            }
+            CtMessage::Overrun => true,
             CtMessage::Done { .. } => false,
         }
     }
@@ -413,7 +419,6 @@ impl Daemon {
                 }
                 Ok(None) => break,
                 Err(error) if error.raw_os_error() == Some(libc::ENOBUFS) => {
-                    warn("netlink 事件缓冲区溢出，正在重新同步 conntrack");
                     self.resync(socket);
                 }
                 Err(error) => return Err(error.into()),
@@ -448,6 +453,12 @@ impl Daemon {
     }
 
     fn resync(&mut self, socket: &mut ConntrackSocket) {
+        let now = Instant::now();
+        if now < self.resync_not_before {
+            return;
+        }
+        self.resync_not_before = now + RESYNC_THROTTLE;
+        warn("netlink 事件缓冲区溢出，正在重新同步 conntrack");
         let now = unix_now();
         match socket.blocking_dump(|tuple| is_client_tuple(tuple, &self.local, &self.excluded)) {
             Ok(dump) => {
@@ -466,6 +477,13 @@ impl Daemon {
         if !self.dirty {
             return;
         }
+        let now = Instant::now();
+        if let Some(last) = self.last_flush {
+            if now.duration_since(last) < FLUSH_MIN_INTERVAL {
+                return;
+            }
+        }
+        self.last_flush = Some(now);
         let mut rows: Vec<(String, u16, u64)> = self
             .ip_class
             .iter()
