@@ -130,15 +130,19 @@ main() {
     else
         log "正在下载预编译二进制"
         local url
-        if url=$(release_binary_url "$arch") && fetch_url "$url" "$INSTALL_WORK_DIR/iplimit"; then
+        if url=$(release_binary_url "$arch") \
+            && fetch_url "$url" "$INSTALL_WORK_DIR/iplimit" \
+            && chmod +x "$INSTALL_WORK_DIR/iplimit" \
+            && "$INSTALL_WORK_DIR/iplimit" version >/dev/null; then
             :
         else
-            log "预编译二进制不可用，回退到源码构建"
+            log "预编译二进制不可用或无法在本机运行，回退到源码构建"
+            rm -f "$INSTALL_WORK_DIR/iplimit"
             build_from_source
         fi
     fi
     chmod +x "$INSTALL_WORK_DIR/iplimit"
-    "$INSTALL_WORK_DIR/iplimit" version || die "下载的二进制无法在本机运行"
+    "$INSTALL_WORK_DIR/iplimit" version
 
     fetch_file iplimit.service "$INSTALL_WORK_DIR/iplimit.service"
 
