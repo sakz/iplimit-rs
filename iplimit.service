@@ -1,0 +1,18 @@
+[Unit]
+Description=IPLimit 按客户端 IP 独立限速（Rust 事件驱动版）
+Documentation=https://github.com/sakz/iplimit-rs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/local/bin/iplimit daemon-internal
+ExecStopPost=/usr/local/bin/iplimit cleanup-internal
+Restart=on-abnormal
+RestartSec=3
+TimeoutStartSec=20
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
